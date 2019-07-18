@@ -1,0 +1,218 @@
+---
+title: "Recriation of '3.2.2 Bad Control' of Angrist and Pischke"
+author: "Marcelo"
+date: "18/07/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+```
+
+## Simulation 
+
+```{r fig.width=6, fig.height=8, warning=F}
+set.seed(12342) # set seed for reproducibility
+R <- 1e4      # nr of replications
+n <- 1000    # number of observations (set high so to decrease 
+              # uncetainty of estimated parameters)
+
+# gen vector of varibles to keep at each replication 
+ldiff <- lcausal <- lsbias <- numeric(R)
+fitsShort <- fitsLong <- list()
+for (r in 1:R) {
+    
+    y0 <- rnorm(n = n, mean = 8)
+    y1 <- rnorm(n = n, mean = 10) # on average, potential oucome is 2 std 
+                                  # deviations higher in case of treatment
+    δ <- y1 - y0  # effect for each individual
+    
+    # basically: increases prob of getting blue collar if college attendance
+    prob <- 1/10
+    
+    # potential working outcomes W1 => white collar, W0 -> Blue collar
+    W1 <- sample(0:1, size = n, prob = c(prob, 1-prob),replace = T)
+    W0 <- sample(0:1, size = n, prob = c(1-prob, prob),replace = T)
+    
+    ## college is RANDOMLY set
+    Ci <- sample(0:1, size = n, replace = T)
+    
+    # definition of observable variables as defined in pg. 48
+    yi <- Ci * y1 + (1 - Ci) * y0
+    Wi <- Ci * W1 + (1 - Ci) * W0
+    
+    # results of apples to oranges from page 49
+    diff <- mean(y1[W1 == 1]) - mean(y0[W0 == 1])
+    causalColgrad <- mean((y1-y0)[W1==1])
+    selecbias <- mean(y0[W1==1]) - mean(y0[W0==1])
+    
+    ldiff[r] <- diff
+    lcausal[r] <- causalColgrad
+    lsbias[r] <- selecbias
+    
+    fitsShort[[r]] <- lm(yi~Ci)
+    fitsLong[[r]] <- lm(yi~Ci+Wi)
+}
+
+b<-33 # nr of breaks in histogram
+{
+    par(mfrow=c(3,1),mar=c(3,3,1,1))
+    hist(ldiff, b, freq = F); lines(density(ldiff), col="red")
+    abline(v=mean(ldiff), col="blue", lwd=2, lty=2)
+    hist(lcausal, b, freq = F); lines(density(lcausal), col="red")
+    abline(v=mean(lcausal), col="blue", lwd=2, lty=2)
+    hist(lsbias, b, freq = F); lines(density(lsbias), col="red")
+    abline(v=mean(lsbias), col="blue", lwd=2, lty=2)
+}
+```
+
+## Data
+
+the variables can be interpreted as:
+
+- yi:  observed outcome
+- y1: potential outcome in case of College Attendance
+- y0: potential outcome in case of College Non-Attendance
+- δ:  Treatmenf effect of each individual
+- Ci:  College attendance (0: no, 1:yi es)
+- Wi:  Occupation status (0: blue, 1: white collar )
+- W1: potential Occupation status in case of College Attendance
+- W0: potential Occupation status in case of College Non-Attendance
+
+
+```{r}
+as.data.frame(cbind(
+    yi, y1, y0, δ, Ci, Wi, W0, W1)
+) %>% round(3) %>% DT::datatable()
+```
+
+## Equation 3.2.12
+
+```{r}
+mean(yi[Wi==1 & Ci==1]) - mean(yi[Wi==1 & Ci==0])
+mean(y1[W1==1 & Ci==1]) - mean(y0[W0==1 & Ci==0])
+```
+
+```{r}
+mean(y1[W1 == 1 & Ci==1]) - mean(y0[W0 == 1 & Ci==0])
+mean(y1[W1 == 1]) - mean(y0[W0==1])
+```
+not equal due to small sample bias, i assume.
+
+
+## Regression Comparison
+
+
+```{r}
+# regression of last iteration!
+summary(lm(yi ~ Ci))
+summary(lm(yi ~ Ci + Wi))
+```
+
+
+## some other stuff of the data
+
+
+### some observables 
+
+```{r observables}
+mean(yi[Ci==1]) # avg observable wages in case of College
+mean(yi[Ci==0]) # avg observable wages in case of No College
+
+mean(yi[Wi==1]) # avg observable wages conditional on White Collar
+mean(yi[Wi==0]) # avg observable wages conditional on Blue Collar
+
+mean(Ci[Wi==1]) # avg College status conditional on White Collar
+mean(Ci[Wi==0]) # avg College status conditional on Blue Collar
+```
+
+### some unobservables 
+
+```{r unobsevables}
+mean(y0[Ci==1]) # potential wages of college had they not been to college
+mean(y1[Ci==0]) # potential wages of no college had they been to college 
+
+mean(y1[Wi==1]) # potential college-wages conditional on occupation status (white collar)
+mean(y1[Wi==0]) # potential college-wages conditional on occupation status (blue collar)
+mean(y0[Wi==1]) # potential non-college-wages conditional on occupation status (White C.)
+mean(y0[Wi==0]) # potential non-college-wages conditional on occupation status (Blue C.)
+
+mean(Ci[W1==1]) # avg observed college attendance conditional on potential occupation status
+mean(Ci[W1==0]) # avg observed college attendance conditional on potential occupation status
+mean(Ci[W0==1]) # avg observed college attendance conditional on potential occupation status
+mean(Ci[W0==0]) # avg observed college attendance conditional on potential occupation status
+```
+
+### the four types
+
+```{r}
+
+mean(W1==1 & W0 == 1) # always takers
+mean(W1==0 & W0 == 0) # never takers
+mean(W1==1 & W0 == 0) # compliers
+mean(W1==0 & W0 == 1) # defiers
+
+```
+
+
+```{r, eval=FALSE, include=FALSE}
+
+#---------------------------------------------------------------
+# error 
+u1 <- yi - (mean(y0) + (y1-y0) * Ci)
+u2 <- y0 - mean(y0)
+
+# effect of College on wages
+mean(yi[Ci==1]) - mean(yi[Ci==0])
+mean(y1 - y0)
+
+
+# effect of College on Working status
+mean(Wi[Ci==1]) - mean(Wi[Ci==0])
+mean(W1 - W0)
+```
+
+```{r eq (3.2.12) , eval=FALSE, include=FALSE}
+# conditional on Wi == 1: EQ(3.2.12)
+mean(yi[Ci==1 & Wi==1]) - mean(yi[Ci==0 & Wi==1])
+mean(y1[Ci==1 & W1==1]) - mean(y0[Ci==0 & W0==1])
+```
+
+```{r apples to oranges problem, eval=FALSE, include=FALSE}
+
+# by joint independence of y1, w1, y0 w0 on Ci we have:
+mean(y1[W1 == 1 & Ci == 1]) - mean(y0[W0 == 1 & Ci == 0])
+mean(y1[W1 == 1]) - mean(y0[W0 == 1])
+
+mean((y1-y0)[W1==1]) 
+
+mean(y0[W1 == 1 ]) - mean(y0[W0 == 1]) # selection bias
+
+
+mean(y0[W1 == 1])
+mean(y0[W0 == 1])
+mean(y1[W1 == 1])
+mean(y1[W0 == 1])
+
+mean(yi[Wi == 1])
+mean(yi[Wi == 0])
+
+```
+
+```{r, eval=FALSE, include=FALSE}
+mean(W1 == 1 & Ci == 1)
+mean(W1 == 1 & Ci == 0)
+mean(W1 == 0 & Ci == 1)
+mean(W1 == 0 & Ci == 0)
+
+mean((y1-y0)[W1==0]) 
+mean((y1-y0)[W1==1]) 
+
+mean((y1-y0)[W0==0]) 
+mean((y1-y0)[W0==1]) 
+
+mean((y1-y0)[Ci==1])
+mean((y1-y0)[Ci==0])
+```
+
